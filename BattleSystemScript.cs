@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Linq;
 
 public enum BattleState { START, PLAYERTURN, ENEMYTURN, WON, LOST, NEXT}
 public class BattleSystemScript : MonoBehaviour
 {
-    public GameObject[] unitPrefab;
+    public int[] changeRounds;
+
+    public UnitScript[] unitPrefab;
     public GameObject[] enemyPrefabs;
 
     public Transform playerBattleStation;
@@ -22,11 +25,16 @@ public class BattleSystemScript : MonoBehaviour
 
     public BattleHUD playerHUD;
     public BattleHUD enemyHUD;
+    public GameObject stageOne;
+    public GameObject stageTwo;
+    public GameObject stageThree;
+    public GameObject stageFour;
 
     public GameObject playerPlat;
     public GameObject enemyPlat;
 
     public Button attackButton;
+    public Button specialAttackButton;
     public Button healButton;
     public Button dodgeButton;
     public Button swapButton;
@@ -43,12 +51,13 @@ public class BattleSystemScript : MonoBehaviour
         StartCoroutine(SetupBattle());
 
         swapButton.onClick.AddListener(OnSwapPlayerUnit);
+        specialAttackButton.onClick.AddListener(OnSpecialAttack);
     }
 
     IEnumerator SetupBattle()
     {
-        GameObject playerGO = Instantiate(unitPrefab[0], playerBattleStation);
-        playerUnit = playerGO.GetComponent<UnitScript>();
+        UnitScript playerGO = Instantiate(unitPrefab[0], playerBattleStation);
+        playerUnit = playerGO;
 
         SpawnRandomEnemy();
 
@@ -92,6 +101,68 @@ public class BattleSystemScript : MonoBehaviour
         }
     }
 
+    IEnumerator PlayerSpecialAttack()
+    {
+        yield return new WaitForSeconds(1f);
+
+        bool playerWins = TypeMatchup(playerUnit.unitType, enemyUnit.unitType);
+
+        if (playerWins)
+        {
+            int specialDamage = playerUnit.specialDamage;
+            enemyUnit.TakeDamage(specialDamage);  
+
+            enemyHUD.SetHp(enemyUnit.currentHp); 
+            dialogueText.text = "Your Special Attack Lands! You Deal " + specialDamage + " Damage.";
+
+            yield return new WaitForSeconds(2f);
+
+            if (enemyUnit.currentHp <= 0)
+            {
+                enemyHUD.SetHp(0);  
+                state = BattleState.WON;
+                EndBattle();  
+            }
+            else
+            {
+                state = BattleState.ENEMYTURN;  
+                StartCoroutine(EnemyTurn());
+            }
+        }
+        else
+        {
+            dialogueText.text = "Your Attack Did Nothing!";
+            yield return new WaitForSeconds(2f);
+
+            state = BattleState.ENEMYTURN;
+            StartCoroutine(EnemyTurn());
+        }
+    }
+
+    bool TypeMatchup(UnitScript.UnitType playerType, UnitScript.UnitType enemyType)
+    {
+        switch (playerType)
+        {
+            case UnitScript.UnitType.Rock:
+                return enemyType == UnitScript.UnitType.Scissors || enemyType == UnitScript.UnitType.Gun;
+            case UnitScript.UnitType.Paper:
+                return enemyType == UnitScript.UnitType.Rock || enemyType == UnitScript.UnitType.Dynamite;
+            case UnitScript.UnitType.Scissors:
+                return enemyType == UnitScript.UnitType.Paper || enemyType == UnitScript.UnitType.Gun;
+            case UnitScript.UnitType.Dynamite:
+                return enemyType == UnitScript.UnitType.Scissors || enemyType == UnitScript.UnitType.Rock;
+            case UnitScript.UnitType.Gun:
+                return enemyType == UnitScript.UnitType.Dynamite || enemyType == UnitScript.UnitType.Paper;
+            default:
+                return false;  
+        }
+        //Rock Beats: Scissors, Gun
+        //Paper Beats: Rock, Dynamite
+       //Scissors Beats: Paper, Gun
+       //Dynamite Beats: Scissors, Rock
+       //Gun Beats: Dynamite, Paper
+    }
+
     IEnumerator EnemyTurn()
     {
         TogglePlatforms();
@@ -125,6 +196,7 @@ public class BattleSystemScript : MonoBehaviour
             dialogueText.text = "You Won The Battle!";
             roundText.text = "Conquered Rounds: " + round;
 
+            Destroy(enemyUnit.gameObject);
 
             StartCoroutine(WaitBeforeNextRound());
         }
@@ -146,7 +218,7 @@ public class BattleSystemScript : MonoBehaviour
 
     void NextTurn()
     {
-        if (round == 5 || round == 10 || round == 15)
+        if (changeRounds.Contains(round))
         {
             dialogueText.text = "Checkpoint Reached At Round " + round + "!";
         }
@@ -196,6 +268,15 @@ public class BattleSystemScript : MonoBehaviour
             return;
 
         StartCoroutine(PlayerAttack());
+        SetButtonsInteractable(false);
+    }
+
+    public void OnSpecialAttack()
+    {
+        if (state != BattleState.PLAYERTURN)
+            return;
+
+        StartCoroutine(PlayerSpecialAttack());
         SetButtonsInteractable(false);
     }
 
@@ -274,7 +355,7 @@ public class BattleSystemScript : MonoBehaviour
 
         int oldPlayerIndex = currentPlayerIndex;
 
-        List<GameObject> remainingUnits = new List<GameObject>(unitPrefab);
+        List<UnitScript> remainingUnits = new List<UnitScript>(unitPrefab);
         remainingUnits.RemoveAt(oldPlayerIndex);  
 
         if (remainingUnits.Count == 0)
@@ -287,8 +368,8 @@ public class BattleSystemScript : MonoBehaviour
 
         Destroy(playerUnit.gameObject);
 
-        GameObject playerGO = Instantiate(remainingUnits[newUnitIndex], playerBattleStation);
-        playerUnit = playerGO.GetComponent<UnitScript>();
+        UnitScript playerGO = Instantiate(remainingUnits[newUnitIndex], playerBattleStation);
+        playerUnit = playerGO;
 
         playerHUD.SetHUD(playerUnit);
 
@@ -307,6 +388,7 @@ public class BattleSystemScript : MonoBehaviour
     void SetButtonsInteractable(bool interactable)
     {
         attackButton.interactable = interactable;
+        specialAttackButton.interactable = interactable;  
         healButton.interactable = interactable;
         dodgeButton.interactable = interactable;  
     }
@@ -320,17 +402,38 @@ public class BattleSystemScript : MonoBehaviour
 
         int randomIndex;
 
-        if (round <= 5)
+        if (round <= 6)
         {
             randomIndex = Random.Range(0, 4);
+            stageOne.SetActive(true);
+            stageTwo.SetActive(false);
+            stageThree.SetActive(false);
+            stageFour.SetActive(false);
+
         }
-        else if (round <= 14)
+        else if (round <= 15)
         {
-            randomIndex = Random.Range(0, 7);
+            randomIndex = Random.Range(0, 8);
+            stageOne.SetActive(false);
+            stageTwo.SetActive(true);
+            stageThree.SetActive(false);
+            stageFour.SetActive(false);
+        }
+        else if (round <= 21)
+        {
+            randomIndex = Random.Range(0, 11);
+            stageOne.SetActive(false);
+            stageTwo.SetActive(false);
+            stageThree.SetActive(true);
+            stageFour.SetActive(false);
         }
         else
         {
             randomIndex = Random.Range(0, enemyPrefabs.Length);
+            stageOne.SetActive(false);
+            stageTwo.SetActive(false);
+            stageThree.SetActive(false);
+            stageFour.SetActive(true);
         }
 
         GameObject enemyGO = Instantiate(enemyPrefabs[randomIndex], enemyBattleStation);
@@ -343,6 +446,16 @@ public class BattleSystemScript : MonoBehaviour
         {
             playerPlat.SetActive(true);
             enemyPlat.SetActive(false);
+        }
+        if (state == BattleState.NEXT)
+        {
+            playerPlat.SetActive(true);
+            enemyPlat.SetActive(true);
+        }
+        if (state == BattleState.WON)
+        {
+            playerPlat.SetActive(true);
+            enemyPlat.SetActive(true);
         }
         else if (state == BattleState.ENEMYTURN)
         {
